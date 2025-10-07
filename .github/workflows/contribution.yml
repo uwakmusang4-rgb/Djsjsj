@@ -1,39 +1,90 @@
-name: Yearly Contribution Generator
+name: Auto Contribution Booster
 
 on:
-  workflow_dispatch:  # bisa dijalankan manual dari tab Actions
+  workflow_dispatch:
+    inputs:
+      total_days:
+        description: "Berapa hari simulasi commit (misal: 365 untuk 1 tahun)"
+        required: true
+        default: 365
+      total_commits:
+        description: "Jumlah total commit (misal: 1500)"
+        required: true
+        default: 150
+      total_issues:
+        description: "Jumlah total issues"
+        required: true
+        default: 10
+      total_prs:
+        description: "Jumlah total pull requests"
+        required: true
+        default: 10
 
 jobs:
-  generate-contributions:
+  generate:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-
-    env:
-      GIT_EMAIL: "236301556+uwakmusang4-rgb@users.noreply.github.com"
-      GIT_NAME: "uwakmusang4-rgb"
-      GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }} # <- token kamu di secrets
-      TOTAL_COMMITS: 1500    # total commit
-      TOTAL_DAYS: 365        # jumlah hari yang digunakan
-      TOTAL_PRS: 10         # jumlah pull request
-      TOTAL_ISSUES: 20      # jumlah issue
-      YEAR: 2025             # tahun target
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup git identity
+      - name: Setup Git identity
         run: |
-          git config --global user.email "${GIT_EMAIL}"
-          git config --global user.name "${GIT_NAME}"
+          git config --global user.name "uwakmusang4-rgb"
+          git config --global user.email "236301556+uwakmusang4-rgb@users.noreply.github.com"
 
-      - name: Generate contributions
+      - name: Calculate commits per day
+        id: calc
+        run: |
+          TOTAL_DAYS=${{ github.event.inputs.total_days }}
+          TOTAL_COMMITS=${{ github.event.inputs.total_commits }}
+          COMMITS_PER_DAY=$((TOTAL_COMMITS / TOTAL_DAYS))
+          echo "commits_per_day=$COMMITS_PER_DAY" >> $GITHUB_OUTPUT
+          echo "total_days=$TOTAL_DAYS" >> $GITHUB_OUTPUT
+
+      - name: Generate commits
         run: |
           mkdir -p logs
-          COMMITS_PER_DAY=$((TOTAL_COMMITS / TOTAL_DAYS))
+          COMMITS_PER_DAY=${{ steps.calc.outputs.commits_per_day }}
+          TOTAL_DAYS=${{ steps.calc.outputs.total_days }}
+          echo "Total hari: $TOTAL_DAYS"
+          echo "Commit per hari: $COMMITS_PER_DAY"
+          for d in $(seq 0 $((TOTAL_DAYS-1))); do
+            DATE=$(date -d "$d days ago" +"%Y-%m-%dT12:00:00")
+            for c in $(seq 1 $COMMITS_PER_DAY); do
+              echo "Commit $c on $DATE" >> logs/commit_$DATE.txt
+              git add logs/commit_$DATE.txt
+              git commit -m "Auto commit $c on $DATE" --date="$DATE"
+            done
+          done
+
+      - name: Push commits
+        run: |
+          git push https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/${{ github.repository }} main
+
+      - name: Create pull requests
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          TOTAL_PRS=${{ github.event.inputs.total_prs }}
+          for i in $(seq 1 $TOTAL_PRS); do
+            branch="pr-branch-$i"
+            git checkout -b $branch
+            echo "Pull Request $i" >> logs/pr_$i.txt
+            git add logs/pr_$i.txt
+            git commit -m "Add file for PR $i"
+            git push https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/${{ github.repository }} HEAD:$branch
+            gh pr create --title "Pull Request #$i" --body "Auto PR generated" --base main --head $branch || true
+          done
+          git checkout main
+
+      - name: Create issues
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          TOTAL_ISSUES=${{ github.event.inputs.total_issues }}
+          for i in $(seq 1 $TOTAL_ISSUES); do
+            gh issue create --title "Issue #$i" --body "Auto-generated issue #$i for contribution activity"
+          done
           echo "Setiap hari akan ada $COMMITS_PER_DAY commit"
 
           for ((day=0; day<TOTAL_DAYS; day++)); do
