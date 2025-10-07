@@ -1,0 +1,76 @@
+name: Yearly Contribution Generator
+
+on:
+  workflow_dispatch:  # bisa dijalankan manual dari tab Actions
+
+jobs:
+  generate-contributions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    env:
+      GIT_EMAIL: "236301556+uwakmusang4-rgb@users.noreply.github.com"
+      GIT_NAME: "uwakmusang4-rgb"
+      GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }} # <- token kamu di secrets
+      TOTAL_COMMITS: 1500    # total commit
+      TOTAL_DAYS: 365        # jumlah hari yang digunakan
+      TOTAL_PRS: 10         # jumlah pull request
+      TOTAL_ISSUES: 20      # jumlah issue
+      YEAR: 2025             # tahun target
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup git identity
+        run: |
+          git config --global user.email "${GIT_EMAIL}"
+          git config --global user.name "${GIT_NAME}"
+
+      - name: Generate contributions
+        run: |
+          mkdir -p logs
+          COMMITS_PER_DAY=$((TOTAL_COMMITS / TOTAL_DAYS))
+          echo "Setiap hari akan ada $COMMITS_PER_DAY commit"
+
+          for ((day=0; day<TOTAL_DAYS; day++)); do
+            for ((c=0; c<COMMITS_PER_DAY; c++)); do
+              DATE="$(date -d "${YEAR}-01-01 +${day} days" +'%Y-%m-%dT%H:%M:%S')"
+              echo "Commit ${c} on day ${day} (${DATE})" >> logs/activity_log.txt
+              git add logs/activity_log.txt
+              git commit -m "Commit ${c} on day ${day}" --date="${DATE}"
+            done
+          done
+
+          git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }} HEAD:main
+
+      - name: Create pull requests
+        run: |
+          for i in $(seq 1 $TOTAL_PRS); do
+            branch="pr-branch-$i"
+            git checkout -b $branch
+            echo "Pull Request $i" >> logs/pr_$i.txt
+            git add logs/pr_$i.txt
+            git commit -m "Add file for PR $i"
+            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }} HEAD:$branch
+            gh pr create --title "Pull Request #$i" --body "Auto PR generated" --base main --head $branch || true
+          done
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+      - name: Create issues
+        run: |
+          for i in $(seq 1 $TOTAL_ISSUES); do
+            gh issue create --title "Issue #$i" --body "Auto-generated issue #$i for contribution activity"
+          done
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "✅ Completed ${TOTAL_COMMITS} commits"
+          echo "✅ Created ${TOTAL_PRS} pull requests"
+          echo "✅ Opened ${TOTAL_ISSUES} issues"
